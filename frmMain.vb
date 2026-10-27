@@ -278,8 +278,8 @@ Public Class frmMain
             lblStatusValue.Text = "OVERDUE by " & Math.Abs(calDaysLeft).ToString(CultureInfo.CurrentCulture) &
                                   If(Math.Abs(calDaysLeft) = 1, " day", " days")
             lblStatusValue.ForeColor = Color.Firebrick
-        ElseIf calDaysLeft = 0 Then
-            lblStatusValue.Text = "DUE TODAY"
+        ElseIf calDaysLeft <= 5 Then
+            lblStatusValue.Text = "Due Soon"
             lblStatusValue.ForeColor = Color.DarkOrange
         Else
             lblStatusValue.Text = "Open"
@@ -366,9 +366,9 @@ Public Class frmMain
                 item.SubItems.Add(calDaysLeft.ToString(CultureInfo.CurrentCulture))
                 item.Tag = rec.Id
 
-                If calDaysLeft < 0 Then
+                If calDaysLeft < 2 Then
                     item.ForeColor = Color.Firebrick
-                ElseIf calDaysLeft = 0 Then
+                ElseIf calDaysLeft <= 5 Then
                     item.ForeColor = Color.DarkOrange
                 End If
 
