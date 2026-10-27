@@ -15,11 +15,31 @@ Public Class frmMain
 #Region "Constants and fields"
 
     Private Const DATA_FOLDER As String = "D:\Temp\PetitionDeadlines"
-    Private Const DATA_FILE As String = DATA_FOLDER & "\PDeadlines.txt"
+    Private Const DATA_FILE As String = DATA_FOLDER & "\PetitionDeadlines.txt"
     Private Const HOLIDAY_FILE As String = DATA_FOLDER & "\Holidays.txt"
 
-    Private Const DATE_FORMAT As String = "yyyy-MM-dd"
-    Private Const FIELD_COUNT As Integer = 8
+    Private Const DATE_FORMAT As String = "MM-dd-yyyy"
+    Private Const LEGACY_FIELD_COUNT As Integer = 8   ' Old tab-delimited format
+
+    ' Fixed-width column layout of the data file (two spaces between columns; notes run to the end of the line).
+    Private Const GAP As Integer = 2
+    Private Const GAP_TEXT As String = "  "
+    Private Const W_ID As Integer = 32
+    Private Const W_NAME As Integer = 40
+    Private Const W_CHARGE As Integer = 50
+    Private Const W_INITIAL As Integer = 10
+    Private Const W_SUBSEQUENT As Integer = 10
+    Private Const W_DAYS As Integer = 4
+    Private Const W_DEADLINE As Integer = 10
+
+    Private Const POS_ID As Integer = 0
+    Private Const POS_NAME As Integer = POS_ID + W_ID + GAP
+    Private Const POS_CHARGE As Integer = POS_NAME + W_NAME + GAP
+    Private Const POS_INITIAL As Integer = POS_CHARGE + W_CHARGE + GAP
+    Private Const POS_SUBSEQUENT As Integer = POS_INITIAL + W_INITIAL + GAP
+    Private Const POS_DAYS As Integer = POS_SUBSEQUENT + W_SUBSEQUENT + GAP
+    Private Const POS_DEADLINE As Integer = POS_DAYS + W_DAYS + GAP
+    Private Const POS_NOTES As Integer = POS_DEADLINE + W_DEADLINE + GAP
 
     ' One saved case. Deadline is recomputed every time records are loaded.
     Private Class PetitionRecord
@@ -45,6 +65,10 @@ Public Class frmMain
 #Region "Form events"
 
     Private Sub frmMain_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        ' Entries cannot be longer than their file columns, so nothing is ever truncated.
+        txtName.MaxLength = W_NAME
+        txtCharge.MaxLength = W_CHARGE
+
         Try
             If Not Directory.Exists(DATA_FOLDER) Then Directory.CreateDirectory(DATA_FOLDER)
         Catch ex As Exception
@@ -254,8 +278,8 @@ Public Class frmMain
             lblStatusValue.Text = "OVERDUE by " & Math.Abs(calDaysLeft).ToString(CultureInfo.CurrentCulture) &
                                   If(Math.Abs(calDaysLeft) = 1, " day", " days")
             lblStatusValue.ForeColor = Color.Firebrick
-        ElseIf calDaysLeft = 5 Then
-            lblStatusValue.Text = "Due this Week"
+        ElseIf calDaysLeft = 0 Then
+            lblStatusValue.Text = "DUE TODAY"
             lblStatusValue.ForeColor = Color.DarkOrange
         Else
             lblStatusValue.Text = "Open"
@@ -342,9 +366,9 @@ Public Class frmMain
                 item.SubItems.Add(calDaysLeft.ToString(CultureInfo.CurrentCulture))
                 item.Tag = rec.Id
 
-                If calDaysLeft < 2 Then
+                If calDaysLeft < 0 Then
                     item.ForeColor = Color.Firebrick
-                ElseIf calDaysLeft <= 5 Then
+                ElseIf calDaysLeft = 0 Then
                     item.ForeColor = Color.DarkOrange
                 End If
 
@@ -359,7 +383,7 @@ Public Class frmMain
 
 #End Region
 
-#Region "Persistence (sequential tab-delimited text file)"
+#Region "Persistence (sequential fixed-width text file)"
 
     ' Optional file: one date per line. Blank lines and lines starting with # or ' are ignored.
     Private Sub LoadHolidays()
@@ -390,42 +414,132 @@ Public Class frmMain
             For Each line As String In File.ReadAllLines(DATA_FILE, Encoding.UTF8)
                 If line.Trim() = "" Then Continue For
 
-                Dim f As String() = line.Split(ControlChars.Tab)
-                If f.Length < FIELD_COUNT Then Continue For
+                ' Skip the header row ("ID ...") and the dashed separator row.
+                If line.StartsWith("ID") OrElse line.StartsWith("--") Then Continue For
 
-                Dim rec As New PetitionRecord()
-                rec.Id = f(0)
-                rec.ChildName = Unescape(f(1))
-                rec.Charge = Unescape(f(2))
-
-                Dim initialDate As Date
-                If Not Date.TryParseExact(f(3), DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, initialDate) Then Continue For
-                rec.InitialDate = initialDate
-
-                If f(4) <> "" Then
-                    Dim subsequentDate As Date
-                    If Date.TryParseExact(f(4), DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, subsequentDate) Then
-                        rec.SubsequentDate = subsequentDate
-                    End If
+                Dim rec As PetitionRecord
+                If line.Contains(vbTab) Then
+                    rec = ParseLegacyLine(line)    ' Older tab-delimited format; rewritten as fixed-width on next save
+                Else
+                    rec = ParseFixedLine(line)
                 End If
 
-                Dim workingDays As Integer
-                If Not Integer.TryParse(f(5), NumberStyles.Integer, CultureInfo.InvariantCulture, workingDays) Then Continue For
-                If workingDays < 1 Then Continue For
-                rec.WorkingDays = workingDays
-
-                rec.Notes = Unescape(f(7))
-
-                ' The stored deadline (f(6)) is informational; recompute so holiday changes take effect.
-                rec.Deadline = AddWorkingDays(rec.InitialDate, rec.WorkingDays)
-
-                _records.Add(rec)
+                If rec IsNot Nothing Then _records.Add(rec)
             Next
         Catch ex As Exception
             MessageBox.Show("Could not read the data file " & DATA_FILE & "." & vbCrLf & vbCrLf & ex.Message,
                             "Petition Deadlines", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
+
+    Private Function ParseFixedLine(line As String) As PetitionRecord
+        If line.Length < POS_DEADLINE + W_DEADLINE Then Return Nothing
+
+        Dim notesText As String = ""
+        If line.Length > POS_NOTES Then notesText = line.Substring(POS_NOTES)
+
+        Return BuildRecord(Field(line, POS_ID, W_ID),
+                           Field(line, POS_NAME, W_NAME),
+                           Field(line, POS_CHARGE, W_CHARGE),
+                           Field(line, POS_INITIAL, W_INITIAL),
+                           Field(line, POS_SUBSEQUENT, W_SUBSEQUENT),
+                           Field(line, POS_DAYS, W_DAYS),
+                           Unescape(notesText))
+    End Function
+
+    Private Function ParseLegacyLine(line As String) As PetitionRecord
+        Dim f As String() = line.Split(ControlChars.Tab)
+        If f.Length < LEGACY_FIELD_COUNT Then Return Nothing
+
+        Return BuildRecord(f(0), Unescape(f(1)), Unescape(f(2)), f(3), f(4), f(5), Unescape(f(7)))
+    End Function
+
+    ' Validates the raw text fields and builds a record, or returns Nothing if the line is unusable.
+    Private Function BuildRecord(id As String, childName As String, charge As String,
+                                 initialText As String, subsequentText As String,
+                                 daysText As String, notes As String) As PetitionRecord
+
+        Dim initialDate As Date
+        If Not Date.TryParseExact(initialText, DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, initialDate) Then Return Nothing
+
+        Dim workingDays As Integer
+        If Not Integer.TryParse(daysText, NumberStyles.Integer, CultureInfo.InvariantCulture, workingDays) Then Return Nothing
+        If workingDays < 1 Then Return Nothing
+
+        Dim rec As New PetitionRecord()
+        rec.Id = If(id = "", Guid.NewGuid().ToString("N"), id)
+        rec.ChildName = childName
+        rec.Charge = charge
+        rec.InitialDate = initialDate
+        rec.WorkingDays = workingDays
+        rec.Notes = notes
+
+        If subsequentText <> "" Then
+            Dim subsequentDate As Date
+            If Date.TryParseExact(subsequentText, DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, subsequentDate) Then
+                rec.SubsequentDate = subsequentDate
+            End If
+        End If
+
+        ' The deadline is not read from the file; it is recomputed so holiday changes take effect.
+        rec.Deadline = AddWorkingDays(rec.InitialDate, rec.WorkingDays)
+        Return rec
+    End Function
+
+    ' Reads one fixed-width column, tolerating lines that were shortened by an editor trimming trailing spaces.
+    Private Shared Function Field(line As String, start As Integer, width As Integer) As String
+        If start >= line.Length Then Return ""
+        Dim length As Integer = Math.Min(width, line.Length - start)
+        Return line.Substring(start, length).Trim()
+    End Function
+
+    ' Pads (or truncates) text to an exact column width. Tabs and line breaks become spaces.
+    Private Shared Function Fit(text As String, width As Integer) As String
+        If text Is Nothing Then text = ""
+        text = text.Replace(vbCr, " ").Replace(vbLf, " ").Replace(vbTab, " ")
+        If text.Length > width Then text = text.Substring(0, width)
+        Return text.PadRight(width)
+    End Function
+
+    Private Shared Function HeaderLine() As String
+        Return Fit("ID", W_ID) & GAP_TEXT &
+               Fit("CHILD NAME", W_NAME) & GAP_TEXT &
+               Fit("CHARGE", W_CHARGE) & GAP_TEXT &
+               Fit("INITIAL", W_INITIAL) & GAP_TEXT &
+               Fit("SUBSEQUENT", W_SUBSEQUENT) & GAP_TEXT &
+               Fit("DAYS", W_DAYS) & GAP_TEXT &
+               Fit("DEADLINE", W_DEADLINE) & GAP_TEXT &
+               "NOTES"
+    End Function
+
+    Private Shared Function SeparatorLine() As String
+        Return New String("-"c, W_ID) & GAP_TEXT &
+               New String("-"c, W_NAME) & GAP_TEXT &
+               New String("-"c, W_CHARGE) & GAP_TEXT &
+               New String("-"c, W_INITIAL) & GAP_TEXT &
+               New String("-"c, W_SUBSEQUENT) & GAP_TEXT &
+               New String("-"c, W_DAYS) & GAP_TEXT &
+               New String("-"c, W_DEADLINE) & GAP_TEXT &
+               New String("-"c, 5)
+    End Function
+
+    Private Shared Function BuildLine(rec As PetitionRecord) As String
+        Dim subsequentText As String = ""
+        If rec.SubsequentDate.HasValue Then
+            subsequentText = rec.SubsequentDate.Value.ToString(DATE_FORMAT, CultureInfo.InvariantCulture)
+        End If
+
+        Dim sb As New StringBuilder()
+        sb.Append(Fit(rec.Id, W_ID)).Append(GAP_TEXT)
+        sb.Append(Fit(rec.ChildName, W_NAME)).Append(GAP_TEXT)
+        sb.Append(Fit(rec.Charge, W_CHARGE)).Append(GAP_TEXT)
+        sb.Append(Fit(rec.InitialDate.ToString(DATE_FORMAT, CultureInfo.InvariantCulture), W_INITIAL)).Append(GAP_TEXT)
+        sb.Append(Fit(subsequentText, W_SUBSEQUENT)).Append(GAP_TEXT)
+        sb.Append(rec.WorkingDays.ToString(CultureInfo.InvariantCulture).PadLeft(W_DAYS)).Append(GAP_TEXT)
+        sb.Append(Fit(rec.Deadline.ToString(DATE_FORMAT, CultureInfo.InvariantCulture), W_DEADLINE)).Append(GAP_TEXT)
+        sb.Append(Escape(rec.Notes))
+        Return sb.ToString()
+    End Function
 
     ' Rewrites the whole file (required for sequential storage) via a temp file so a failed write cannot corrupt it.
     Private Function WriteAllRecords() As Boolean
@@ -434,22 +548,10 @@ Public Class frmMain
             If Not Directory.Exists(DATA_FOLDER) Then Directory.CreateDirectory(DATA_FOLDER)
 
             Dim lines As New List(Of String)()
+            lines.Add(HeaderLine())
+            lines.Add(SeparatorLine())
             For Each rec As PetitionRecord In _records
-                Dim subsequentText As String = ""
-                If rec.SubsequentDate.HasValue Then
-                    subsequentText = rec.SubsequentDate.Value.ToString(DATE_FORMAT, CultureInfo.InvariantCulture)
-                End If
-
-                lines.Add(String.Join(vbTab, New String() {
-                    rec.Id,
-                    Escape(rec.ChildName),
-                    Escape(rec.Charge),
-                    rec.InitialDate.ToString(DATE_FORMAT, CultureInfo.InvariantCulture),
-                    subsequentText,
-                    rec.WorkingDays.ToString(CultureInfo.InvariantCulture),
-                    rec.Deadline.ToString(DATE_FORMAT, CultureInfo.InvariantCulture),
-                    Escape(rec.Notes)
-                }))
+                lines.Add(BuildLine(rec))
             Next
 
             File.WriteAllLines(tempFile, lines, Encoding.UTF8)
@@ -464,7 +566,7 @@ Public Class frmMain
         End Try
     End Function
 
-    ' Keeps each record on exactly one line with exactly one tab between fields.
+    ' Used for the notes column: keeps each record on exactly one line.
     Private Shared Function Escape(text As String) As String
         If text Is Nothing Then Return ""
         Dim result As String = text.Replace("\", "\\")
