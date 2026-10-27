@@ -14,8 +14,8 @@ Public Class frmMain
 
 #Region "Constants and fields"
 
-    Private Const DATA_FOLDER As String = "C:\PetitionDeadlines"
-    Private Const DATA_FILE As String = DATA_FOLDER & "\PetitionDeadlines.txt"
+    Private Const DATA_FOLDER As String = "D:\Temp\PetitionDeadlines"
+    Private Const DATA_FILE As String = DATA_FOLDER & "\PDeadlines.txt"
     Private Const HOLIDAY_FILE As String = DATA_FOLDER & "\Holidays.txt"
 
     Private Const DATE_FORMAT As String = "yyyy-MM-dd"
@@ -146,6 +146,8 @@ Public Class frmMain
         RefreshList()
         UpdateButtons()
         MessageBox.Show("Record saved.", "Petition Deadlines", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        ClearForm()
+        txtName.Focus()
     End Sub
 
     Private Sub btnClear_Click(sender As Object, e As EventArgs) Handles btnClear.Click
@@ -252,8 +254,8 @@ Public Class frmMain
             lblStatusValue.Text = "OVERDUE by " & Math.Abs(calDaysLeft).ToString(CultureInfo.CurrentCulture) &
                                   If(Math.Abs(calDaysLeft) = 1, " day", " days")
             lblStatusValue.ForeColor = Color.Firebrick
-        ElseIf calDaysLeft = 0 Then
-            lblStatusValue.Text = "DUE TODAY"
+        ElseIf calDaysLeft = 5 Then
+            lblStatusValue.Text = "Due this Week"
             lblStatusValue.ForeColor = Color.DarkOrange
         Else
             lblStatusValue.Text = "Open"
@@ -282,7 +284,7 @@ Public Class frmMain
             dtpInitial.Value = Date.Today
             dtpSubsequent.Value = Date.Today
             dtpSubsequent.Checked = False
-            nudDays.Value = 2D
+            nudDays.Value = 15D
             ResetResults()
             _currentId = ""
             lvRecords.SelectedItems.Clear()
@@ -340,9 +342,9 @@ Public Class frmMain
                 item.SubItems.Add(calDaysLeft.ToString(CultureInfo.CurrentCulture))
                 item.Tag = rec.Id
 
-                If calDaysLeft < 0 Then
+                If calDaysLeft < 2 Then
                     item.ForeColor = Color.Firebrick
-                ElseIf calDaysLeft = 0 Then
+                ElseIf calDaysLeft <= 5 Then
                     item.ForeColor = Color.DarkOrange
                 End If
 
