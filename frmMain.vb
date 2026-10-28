@@ -8,6 +8,7 @@ Imports System.Globalization
 Imports System.IO
 Imports System.Linq
 Imports System.Text
+Imports System.Text.RegularExpressions
 Imports System.Windows.Forms
 
 Public Class frmMain
@@ -19,14 +20,16 @@ Public Class frmMain
     Private Const HOLIDAY_FILE As String = DATA_FOLDER & "\Holidays.txt"
 
     Private Const DATE_FORMAT As String = "MM-dd-yyyy"
-    Private Const LEGACY_FIELD_COUNT As Integer = 8   ' Old tab-delimited format
+    Private Const LEGACY_FIELD_COUNT As Integer = 8   ' Oldest tab-delimited format
+    Private Const ID_PREFIX As String = "JV-"
+    Private Shared ReadOnly DATE_FORMATS As String() = New String() {DATE_FORMAT, "yyyy-MM-dd"}   ' Current format first; older files used yyyy-MM-dd
 
     ' Fixed-width column layout of the data file (two spaces between columns; notes run to the end of the line).
     Private Const GAP As Integer = 2
     Private Const GAP_TEXT As String = "  "
-    Private Const W_ID As Integer = 32
-    Private Const W_NAME As Integer = 40
-    Private Const W_CHARGE As Integer = 50
+    Private Const W_ID As Integer = 9        ' "JV-" + 6 digits
+    Private Const W_NAME As Integer = 25
+    Private Const W_CHARGE As Integer = 25
     Private Const W_INITIAL As Integer = 10
     Private Const W_SUBSEQUENT As Integer = 10
     Private Const W_DAYS As Integer = 4
@@ -59,6 +62,7 @@ Public Class frmMain
     Private _currentId As String = ""      ' Id of the saved record loaded in the form ("" = new record)
     Private _loading As Boolean = False    ' Suppresses event handlers while the form is populated in code
     Private _lastRefreshDate As Date = Date.Today
+    Private ReadOnly _rng As New Random()
 
 #End Region
 
@@ -144,7 +148,7 @@ Public Class frmMain
         End If
         If rec Is Nothing Then
             rec = New PetitionRecord()
-            rec.Id = Guid.NewGuid().ToString("N")
+            rec.Id = GenerateId()
             _records.Add(rec)
         End If
 
@@ -411,17 +415,25 @@ Public Class frmMain
         If Not File.Exists(DATA_FILE) Then Return
 
         Try
+            ' Column start positions are read from the file's own header row, so a file written with
+            ' different column widths still loads correctly (it is rewritten in the current layout on the next save).
+            Dim starts As Integer() = DefaultColumnStarts()
+
             For Each line As String In File.ReadAllLines(DATA_FILE, Encoding.UTF8)
                 If line.Trim() = "" Then Continue For
+                If line.StartsWith("--") Then Continue For   ' Dashed separator row
 
-                ' Skip the header row ("ID ...") and the dashed separator row.
-                If line.StartsWith("ID") OrElse line.StartsWith("--") Then Continue For
+                If line.StartsWith("ID") Then                ' Header row
+                    Dim headerStarts As Integer() = ReadColumnStarts(line)
+                    If headerStarts IsNot Nothing Then starts = headerStarts
+                    Continue For
+                End If
 
                 Dim rec As PetitionRecord
                 If line.Contains(vbTab) Then
-                    rec = ParseLegacyLine(line)    ' Older tab-delimited format; rewritten as fixed-width on next save
+                    rec = ParseLegacyLine(line)    ' Oldest tab-delimited format
                 Else
-                    rec = ParseFixedLine(line)
+                    rec = ParseFixedLine(line, starts)
                 End If
 
                 If rec IsNot Nothing Then _records.Add(rec)
@@ -432,18 +444,38 @@ Public Class frmMain
         End Try
     End Sub
 
-    Private Function ParseFixedLine(line As String) As PetitionRecord
-        If line.Length < POS_DEADLINE + W_DEADLINE Then Return Nothing
+    Private Shared Function DefaultColumnStarts() As Integer()
+        Return New Integer() {POS_ID, POS_NAME, POS_CHARGE, POS_INITIAL, POS_SUBSEQUENT, POS_DAYS, POS_DEADLINE, POS_NOTES}
+    End Function
+
+    ' Finds where each column begins by locating its title in the header row. Returns Nothing if a title is missing.
+    Private Shared Function ReadColumnStarts(header As String) As Integer()
+        Dim titles As String() = New String() {"ID", "CHILD NAME", "CHARGE", "INITIAL", "SUBSEQUENT", "DAYS", "DEADLINE", "NOTES"}
+        Dim starts(titles.Length - 1) As Integer
+        starts(0) = 0
+
+        For i As Integer = 1 To titles.Length - 1
+            Dim searchFrom As Integer = starts(i - 1) + titles(i - 1).Length
+            Dim idx As Integer = header.IndexOf(titles(i), searchFrom, StringComparison.Ordinal)
+            If idx < 0 Then Return Nothing
+            starts(i) = idx
+        Next
+        Return starts
+    End Function
+
+    Private Function ParseFixedLine(line As String, starts As Integer()) As PetitionRecord
+        ' starts: 0=ID 1=Name 2=Charge 3=Initial 4=Subsequent 5=Days 6=Deadline 7=Notes
+        If line.Length <= starts(5) Then Return Nothing
 
         Dim notesText As String = ""
-        If line.Length > POS_NOTES Then notesText = line.Substring(POS_NOTES)
+        If line.Length > starts(7) Then notesText = line.Substring(starts(7))
 
-        Return BuildRecord(Field(line, POS_ID, W_ID),
-                           Field(line, POS_NAME, W_NAME),
-                           Field(line, POS_CHARGE, W_CHARGE),
-                           Field(line, POS_INITIAL, W_INITIAL),
-                           Field(line, POS_SUBSEQUENT, W_SUBSEQUENT),
-                           Field(line, POS_DAYS, W_DAYS),
+        Return BuildRecord(Field(line, starts(0), starts(1) - starts(0)),
+                           Field(line, starts(1), starts(2) - starts(1)),
+                           Field(line, starts(2), starts(3) - starts(2)),
+                           Field(line, starts(3), starts(4) - starts(3)),
+                           Field(line, starts(4), starts(5) - starts(4)),
+                           Field(line, starts(5), starts(6) - starts(5)),
                            Unescape(notesText))
     End Function
 
@@ -460,14 +492,15 @@ Public Class frmMain
                                  daysText As String, notes As String) As PetitionRecord
 
         Dim initialDate As Date
-        If Not Date.TryParseExact(initialText, DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, initialDate) Then Return Nothing
+        If Not Date.TryParseExact(initialText, DATE_FORMATS, CultureInfo.InvariantCulture, DateTimeStyles.None, initialDate) Then Return Nothing
 
         Dim workingDays As Integer
         If Not Integer.TryParse(daysText, NumberStyles.Integer, CultureInfo.InvariantCulture, workingDays) Then Return Nothing
         If workingDays < 1 Then Return Nothing
 
         Dim rec As New PetitionRecord()
-        rec.Id = If(id = "", Guid.NewGuid().ToString("N"), id)
+        ' Keep a valid, unused JV- id; anything else (such as an older GUID) gets a new JV- id.
+        rec.Id = If(IsValidId(id) AndAlso Not IdExists(id), id, GenerateId())
         rec.ChildName = childName
         rec.Charge = charge
         rec.InitialDate = initialDate
@@ -476,7 +509,7 @@ Public Class frmMain
 
         If subsequentText <> "" Then
             Dim subsequentDate As Date
-            If Date.TryParseExact(subsequentText, DATE_FORMAT, CultureInfo.InvariantCulture, DateTimeStyles.None, subsequentDate) Then
+            If Date.TryParseExact(subsequentText, DATE_FORMATS, CultureInfo.InvariantCulture, DateTimeStyles.None, subsequentDate) Then
                 rec.SubsequentDate = subsequentDate
             End If
         End If
@@ -484,6 +517,23 @@ Public Class frmMain
         ' The deadline is not read from the file; it is recomputed so holiday changes take effect.
         rec.Deadline = AddWorkingDays(rec.InitialDate, rec.WorkingDays)
         Return rec
+    End Function
+
+    ' New record id: "JV-" followed by a random 6-digit number that no other record is using.
+    Private Function GenerateId() As String
+        Dim id As String
+        Do
+            id = ID_PREFIX & _rng.Next(100000, 1000000).ToString(CultureInfo.InvariantCulture)
+        Loop While IdExists(id)
+        Return id
+    End Function
+
+    Private Function IdExists(id As String) As Boolean
+        Return _records.Any(Function(r) r.Id = id)
+    End Function
+
+    Private Shared Function IsValidId(id As String) As Boolean
+        Return Regex.IsMatch(id, "^JV-\d{6}$")
     End Function
 
     ' Reads one fixed-width column, tolerating lines that were shortened by an editor trimming trailing spaces.
