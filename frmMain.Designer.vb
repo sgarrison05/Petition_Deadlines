@@ -50,6 +50,7 @@ Partial Class frmMain
         colDeadline = New System.Windows.Forms.ColumnHeader()
         colWork = New System.Windows.Forms.ColumnHeader()
         colCal = New System.Windows.Forms.ColumnHeader()
+        btnClose = New System.Windows.Forms.Button()
         grpCase.SuspendLayout()
         CType(nudDays, ComponentModel.ISupportInitialize).BeginInit()
         grpResults.SuspendLayout()
@@ -322,7 +323,7 @@ Partial Class frmMain
         lvRecords.Location = New System.Drawing.Point(470, 78)
         lvRecords.MultiSelect = False
         lvRecords.Name = "lvRecords"
-        lvRecords.Size = New System.Drawing.Size(458, 550)
+        lvRecords.Size = New System.Drawing.Size(551, 550)
         lvRecords.TabIndex = 8
         lvRecords.UseCompatibleStateImageBehavior = False
         lvRecords.View = System.Windows.Forms.View.Details
@@ -330,12 +331,12 @@ Partial Class frmMain
         ' colName
         ' 
         colName.Text = "Name"
-        colName.Width = 105
+        colName.Width = 150
         ' 
         ' colCharge
         ' 
         colCharge.Text = "Charge"
-        colCharge.Width = 115
+        colCharge.Width = 150
         ' 
         ' colDeadline
         ' 
@@ -349,15 +350,25 @@ Partial Class frmMain
         ' 
         ' colCal
         ' 
-        colCal.Text = "Cal. Days"
-        colCal.Width = 70
+        colCal.Text = "Total Days"
+        colCal.Width = 85
+        ' 
+        ' btnClose
+        ' 
+        btnClose.Location = New System.Drawing.Point(926, 12)
+        btnClose.Name = "btnClose"
+        btnClose.Size = New System.Drawing.Size(108, 32)
+        btnClose.TabIndex = 9
+        btnClose.Text = "Close"
+        btnClose.UseVisualStyleBackColor = True
         ' 
         ' frmMain
         ' 
         AcceptButton = btnCalculate
         AutoScaleDimensions = New System.Drawing.SizeF(7F, 15F)
         AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
-        ClientSize = New System.Drawing.Size(940, 640)
+        ClientSize = New System.Drawing.Size(1044, 640)
+        Controls.Add(btnClose)
         Controls.Add(lvRecords)
         Controls.Add(lblRecords)
         Controls.Add(btnDelete)
@@ -418,5 +429,6 @@ Partial Class frmMain
     Friend WithEvents colDeadline As System.Windows.Forms.ColumnHeader
     Friend WithEvents colWork As System.Windows.Forms.ColumnHeader
     Friend WithEvents colCal As System.Windows.Forms.ColumnHeader
+    Friend WithEvents btnClose As System.Windows.Forms.Button
 
 End Class
