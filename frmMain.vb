@@ -15,7 +15,7 @@ Public Class frmMain
 
 #Region "Constants and fields"
 
-    Private Const DATA_FOLDER As String = "D:\Temp\PetitionDeadlines"
+    Private Const DATA_FOLDER As String = "C:\PetitionDeadlines"
     Private Const DATA_FILE As String = DATA_FOLDER & "\PetitionDeadlines.txt"
     Private Const HOLIDAY_FILE As String = DATA_FOLDER & "\Holidays.txt"
 
